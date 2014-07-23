@@ -159,8 +159,11 @@ saved to the database, albeit at this point this information is not used anywher
 
 == Changelog ==
 
-= 0.3 =
+= 0.3.0 =
 * First public release
+
+= 0.3.1 =
+* Quick bugfix
 
 == Upgrade Notice ==
 
