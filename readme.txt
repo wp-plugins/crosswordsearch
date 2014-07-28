@@ -159,11 +159,17 @@ saved to the database, albeit at this point this information is not used anywher
 
 == Changelog ==
 
-= 0.3.0 =
-* First public release
+= 0.3.2 =
+* Some CSS tweaks
+* Installation fix: explicitly install InnoDB tables
+* fix revision date and version for .po files
+
 
 = 0.3.1 =
 * Quick bugfix
+
+= 0.3.0 =
+* First public release
 
 == Upgrade Notice ==
 
