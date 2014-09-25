@@ -1,5 +1,5 @@
 /*
-crosswordsearch Wordpress plugin v0.3.2
+crosswordsearch Wordpress plugin v0.3.3
 Copyright Claus Colloseus 2014 for RadiJojo.de
 
 This program is free software: Redistribution and use, with or
@@ -22,32 +22,37 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
 var customSelectElement = angular.module("customSelectElement", []);
 
-customSelectElement.directive("cseDefault", [ "$compile", function($compile) {
+customSelectElement.directive("cseDefault", function() {
     return {
         scope: {
             value: "="
         },
-        template: "{{value.value || value}}"
+        template: function(tElement, tAttr) {
+            return "{{" + (tAttr.cseDefault || "value.value || value") + "}}";
+        }
     };
-} ]);
+});
 
 customSelectElement.directive("cseOption", [ "$compile", function($compile) {
     return {
         scope: {
-            value: "=",
-            isMenu: "=",
-            templ: "="
+            value: "="
         },
         link: function(scope, element, attrs) {
             scope.select = function(value) {
-                scope.$emit("select", value, attrs.name);
+                scope.$emit("cseSelect", attrs.name, value);
             };
             attrs.$observe("value", function() {
                 var html;
                 if (angular.isObject(scope.value) && scope.value.group) {
-                    html = '<dl class="cse text" cse-select="' + attrs.name + '.sub" cse-options="value.group" ' + 'cse-model="head" ' + 'cse-template="' + attrs.templ + '"';
-                    if (angular.isDefined(scope.isMenu)) {
-                        html += ' cse-is-menu ng-init="head=value"';
+                    html = '<dl cse-select="' + attrs.name + '.sub" cse-model="head" cse-options="value.group" is-group ';
+                    if (angular.isDefined(attrs.expr)) {
+                        html += 'display="' + attrs.expr + '"';
+                    } else {
+                        html += 'template="' + attrs.templ + '"';
+                    }
+                    if (angular.isDefined(attrs.isMenu)) {
+                        html += ' is-menu="' + scope.value.menu + '"';
                     }
                     html += "></dl>";
                     element.html(html);
@@ -58,7 +63,11 @@ customSelectElement.directive("cseOption", [ "$compile", function($compile) {
                     } else {
                         html += '"select(value)" ';
                     }
-                    html += attrs.templ + ' value="value"></div>';
+                    html += attrs.templ;
+                    if (angular.isDefined(attrs.expr)) {
+                        html += '="' + attrs.expr + '"';
+                    }
+                    html += ' value="value"></div>';
                     element.html(html);
                 }
                 $compile(element.contents())(scope);
@@ -67,22 +76,55 @@ customSelectElement.directive("cseOption", [ "$compile", function($compile) {
     };
 } ]);
 
-customSelectElement.directive("cseSelect", [ "$document", function($document) {
+customSelectElement.directive("cseSelect", [ "$document", "$timeout", function($document, $timeout) {
     return {
         restrict: "A",
         scope: {
             options: "=cseOptions",
-            model: "=cseModel",
-            isMenu: "=cseIsMenu",
-            cseTemplate: "="
+            model: "=cseModel"
         },
         link: function(scope, element, attrs) {
-            scope.setModel = !angular.isDefined(attrs.cseIsMenu);
-            var elementEquals = function(el1, el2) {
-                return el1[0] === el2[0];
-            };
+            var delayed;
+            element.addClass("cse select");
             scope.isDefined = angular.isDefined;
-            var elementHide = function(event) {
+            if (angular.isDefined(attrs.isMenu)) {
+                scope.model = attrs.isMenu;
+                scope.setModel = false;
+            } else {
+                scope.setModel = true;
+            }
+            scope.visible = false;
+            scope.$watch("visible", function(newVisible) {
+                if (newVisible) {
+                    $document.bind("click", elementHideClick);
+                } else {
+                    $document.unbind("click", elementHideClick);
+                }
+            });
+            scope.hideLeave = function() {
+                delayed = $timeout(function() {
+                    scope.visible = false;
+                }, 200);
+            };
+            scope.showEnter = function() {
+                scope.visible = true;
+                if (delayed) {
+                    $timeout.cancel(delayed);
+                }
+            };
+            element.on("$destroy", function() {
+                $document.unbind("click", elementHideClick);
+                if (delayed) {
+                    $timeout.cancel(delayed);
+                }
+            });
+            scope.$on("cseSelect", function(event, name, opt) {
+                scope.visible = false;
+                if (scope.setModel) {
+                    scope.model = opt;
+                }
+            });
+            function elementHideClick(event) {
                 var clicked = angular.element(event.target);
                 do {
                     if (elementEquals(clicked, element)) {
@@ -91,30 +133,38 @@ customSelectElement.directive("cseSelect", [ "$document", function($document) {
                     clicked = clicked.parent();
                 } while (clicked.length && !elementEquals($document, clicked));
                 scope.$apply("visible = false");
-            };
-            scope.visible = false;
-            scope.$watch("visible", function(newVisible) {
-                if (newVisible) {
-                    $document.bind("click", elementHide);
-                } else {
-                    $document.unbind("click", elementHide);
-                }
-            });
-            element.on("$destroy", function() {
-                $document.unbind("click", elementHide);
-            });
-            scope.$on("select", function(event, opt) {
-                scope.visible = false;
-                if (scope.setModel) {
-                    scope.model = opt;
-                }
-            });
+            }
+            function elementEquals(el1, el2) {
+                return el1[0] === el2[0];
+            }
         },
         template: function(tElement, tAttr) {
-            var templ = tAttr.cseTemplate || "cse-default";
-            var html = '<dt ng-click="visible=!visible"><div ng-show="isDefined(model)" ' + templ + ' value="model"></div></dt>' + '<dd ng-show="visible"><ul>' + "<li ng-repeat=\"opt in options | orderBy:'order'\" " + 'cse-option name="' + tAttr.cseSelect + '" model="' + tAttr.cseModel + '" value="opt" templ="' + templ + '"';
-            if (angular.isDefined(tAttr.cseIsMenu)) {
-                html += ' is-menu="1"';
+            var templ = "cse-default", isExpression = false;
+            if (angular.isDefined(tAttr.template)) {
+                templ = tAttr.template;
+            } else if (angular.isDefined(tAttr.display)) {
+                isExpression = true;
+            }
+            var html = "<dt ";
+            if (angular.isDefined(tAttr.isGroup)) {
+                html += 'ng-mouseenter="showEnter()" ng-mouseleave="hideLeave()"';
+            } else {
+                html += 'ng-click="visible=!visible"';
+            }
+            html += '><div ng-show="isDefined(model)" ' + templ;
+            if (isExpression) {
+                html += '="' + tAttr.display + '"';
+            }
+            html += ' value="model" is-current></div><a class="btn"></a></dt><dd';
+            if (angular.isDefined(tAttr.isGroup)) {
+                html += ' ng-mouseenter="showEnter()" ng-mouseleave="hideLeave()"';
+            }
+            html += ' ng-show="visible"><ul>' + "<li ng-repeat=\"opt in options | orderBy:'order'\" " + 'cse-option name="' + tAttr.cseSelect + '" model="' + tAttr.cseModel + '" value="opt" templ="' + templ + '"';
+            if (isExpression) {
+                html += ' expr="' + tAttr.display + '"';
+            }
+            if (angular.isDefined(tAttr.isMenu)) {
+                html += " is-menu";
             }
             html += "></li></ul></dd>";
             return html;
@@ -373,6 +423,9 @@ crwApp.factory("crosswordFactory", [ "basics", "reduce", "ajaxFactory", function
                 name: name,
                 restricted: restricted
             }, crwContext).then(function(data) {
+                stdLevel = data.default_level;
+                maxLevel = data.maximum_level;
+                namesList = data.namesList;
                 if (angular.isObject(data.crossword)) {
                     angular.extend(crossword, data.crossword);
                     if (_getLevelRestriction("sol")) {
@@ -381,9 +434,6 @@ crwApp.factory("crosswordFactory", [ "basics", "reduce", "ajaxFactory", function
                 } else {
                     _loadDefault();
                 }
-                namesList = data.namesList;
-                stdLevel = data.default_level;
-                maxLevel = data.maximum_level;
                 return true;
             });
         };
@@ -826,8 +876,12 @@ crwApp.controller("EditorController", [ "$scope", "$filter", "ajaxFactory", func
         $scope.filtered_users = jQuery.grep($scope.admin.all_users, function(user) {
             return jQuery.inArray(user.user_id, $scope.currentEditors) < 0;
         });
-        $scope.selectedEditor = $filter("orderBy")($scope.currentEditors, $scope.getUserName)[0];
-        $scope.selectedUser = $filter("orderBy")($scope.filtered_users, "user_name")[0];
+        if (jQuery.inArray($scope.selectedEditor, $scope.currentEditors) < 0) {
+            $scope.selectedEditor = $filter("orderBy")($scope.currentEditors, $scope.getUserName)[0];
+        }
+        if (jQuery.inArray($scope.selectedUser, $scope.filtered_users) < 0) {
+            $scope.selectedUser = $filter("orderBy")($scope.filtered_users, "user_name")[0];
+        }
         $scope.loadError = null;
     };
     $scope.$watchCollection("currentEditors", getFilteredUsers);
@@ -853,7 +907,7 @@ crwApp.controller("EditorController", [ "$scope", "$filter", "ajaxFactory", func
         $scope.selectedEditor = selected;
     };
     $scope.removeAll = function() {
-        $scope.currentEditors.splice(0);
+        $scope.currentEditors.splice(0, $scope.currentEditors.length);
         $scope.editorsPristine = false;
     };
     $scope.removeOne = function() {
@@ -1052,15 +1106,6 @@ crwApp.directive("crwMenu", [ "$compile", function($compile) {
     };
 } ]);
 
-crwApp.directive("crwLevelNumber", [ "$compile", function($compile) {
-    return {
-        scope: {
-            value: "="
-        },
-        template: "{{value + 1}}"
-    };
-} ]);
-
 crwApp.controller("CrosswordController", [ "$scope", "qStore", "basics", "crosswordFactory", function($scope, qStore, basics, crosswordFactory) {
     if (!$scope.crw) {
         $scope.crw = crosswordFactory.getCrw();
@@ -1098,6 +1143,7 @@ crwApp.controller("CrosswordController", [ "$scope", "qStore", "basics", "crossw
             var obj = basics.localize(command);
             obj.value = command;
             if (command === "load") {
+                obj.menu = obj.display;
                 obj.group = [];
             }
             return obj;
@@ -1107,7 +1153,7 @@ crwApp.controller("CrosswordController", [ "$scope", "qStore", "basics", "crossw
             deregister();
         });
     };
-    $scope.$on("select", function(event, value, source) {
+    $scope.$on("cseSelect", function(event, source, value) {
         event.stopPropagation();
         switch (source) {
           case "command":
@@ -1389,7 +1435,7 @@ crwApp.directive("crwIndexChecker", function() {
 
 crwApp.controller("TableController", [ "$scope", "basics", "markerFactory", function($scope, basics, markerFactory) {
     var isMarking = false, currentMarking, mode, lastName;
-    var markers = markerFactory.getMarkers();
+    $scope.markers = markerFactory.getMarkers();
     function validMarking(newStop) {
         var dif_x = currentMarking.start.x - newStop.x, dif_y = currentMarking.start.y - newStop.y;
         if ($scope.crw.getLevelRestriction("dir")) {
@@ -1414,13 +1460,13 @@ crwApp.controller("TableController", [ "$scope", "basics", "markerFactory", func
                 angular.forEach(oldWords, function(word, id) {
                     len++;
                     if (!newWords[id]) {
-                        markers.deleteMarking(id);
+                        $scope.markers.deleteMarking(id);
                     } else {
                         probe = true;
                     }
                 });
                 if (probe || len === 0) {
-                    markers.redrawMarkers($scope.crosswordData.words);
+                    $scope.markers.redrawMarkers($scope.crosswordData.words);
                 }
             }, true);
         }
@@ -1432,28 +1478,28 @@ crwApp.controller("TableController", [ "$scope", "basics", "markerFactory", func
                 }
                 angular.forEach(oldWords, function(word, id) {
                     if (!newWords[id] || !newWords[id].solved) {
-                        markers.deleteMarking(word.markingId);
+                        $scope.markers.deleteMarking(word.markingId);
                     }
                 });
                 angular.forEach(newWords, function(word, id) {
                     if (!oldWords[id] || !oldWords[id].solved && word.solved) {
-                        markers.exchangeMarkers(word.fields, currentMarking.ID, word.color);
+                        $scope.markers.exchangeMarkers(word.fields, currentMarking.ID, word.color);
                     }
                 });
             }, true);
         }
     };
     $scope.$watch("crosswordData.name", function() {
-        markers.deleteAllMarking();
+        $scope.markers.deleteAllMarking();
         currentMarking = {
             ID: $scope.crw.getHighId()
         };
         if (mode !== "solve") {
-            markers.redrawMarkers($scope.crosswordData.words);
+            $scope.markers.redrawMarkers($scope.crosswordData.words);
         }
     });
     $scope.getMarks = function(line, column) {
-        return markers.getMarks(column, line);
+        return $scope.markers.getMarks(column, line);
     };
     $scope.getImgClass = function(marker) {
         return [ marker.img, marker.marking.color ];
@@ -1489,7 +1535,7 @@ crwApp.controller("TableController", [ "$scope", "basics", "markerFactory", func
                 }
             }
         } else {
-            markers.deleteMarking(currentMarking.ID);
+            $scope.markers.deleteMarking(currentMarking.ID);
         }
     };
     $scope.intoField = function(row, col) {
@@ -1499,7 +1545,7 @@ crwApp.controller("TableController", [ "$scope", "basics", "markerFactory", func
         };
         if (isMarking && currentMarking.start && validMarking(newStop)) {
             currentMarking.stop = newStop;
-            markers.setNewMarkers(currentMarking);
+            $scope.markers.setNewMarkers(currentMarking);
         }
     };
     $scope.outofField = function(row, col) {
@@ -1508,7 +1554,7 @@ crwApp.controller("TableController", [ "$scope", "basics", "markerFactory", func
                 x: col,
                 y: row
             };
-            markers.setNewMarkers(currentMarking);
+            $scope.markers.setNewMarkers(currentMarking);
         }
     };
     $scope.move = function(event) {
@@ -1640,15 +1686,15 @@ crwApp.directive("crwAddParsers", function() {
                             if (jQuery.inArray(viewValue, blacklist) >= 0) {
                                 result = undefined;
                             }
-                            break;
+                            continue;
                         } else if (typeof blacklist === "object") {
                             if (blacklist.hasOwnProperty(viewValue)) {
                                 result = undefined;
                             }
-                            break;
+                            continue;
                         } else if (typeof blacklist === "string" && blacklist === viewValue) {
                             result = undefined;
-                            break;
+                            continue;
                         }
                     }
                     ctrl.$setValidity("unique", result !== undefined);

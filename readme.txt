@@ -2,7 +2,7 @@
 Contributors: ccprog
 Tags: game, crossword, shortcode, educational, multilingual
 Requires at least: 3.6
-Tested up to: 3.9.1
+Tested up to: 4.0
 Stable tag: trunk
 License: see LICENCE file
 License URI: https://github.com/ccprog/crosswordsearch/LICENCE
@@ -158,6 +158,13 @@ saved to the database, albeit at this point this information is not used anywher
 4. The *Assign projects and editors* tab
 
 == Changelog ==
+
+= 0.3.3 =
+
+* WordPress 4.0 compatibility
+* minor improvements in level selection and editor assignment interface
+* some bug fixes, one concerning IE8 compatibility
+* customSelectElement improved, most notably submenus now open when mouse hovers over the parent entry
 
 = 0.3.2 =
 * Some CSS tweaks
