@@ -95,6 +95,17 @@ For each role you can choose between three categories:
   they have been added to the editors. For those projects, they can preview riddles,
   delete them or approve pending riddles by restricted editors.
 
+= Custom theming =
+
+It is possible to override the design for this plugin by placing a file
+`crosswordsearch.css` into the base folder of the active theme. It will be loaded directly
+after the default plugin CSS.
+
+Since some dimension values for the crossword grid are used in computations during drag
+operations, it might be necessary to adjust them to customizations. Therefore the *Options*
+tab on the Settings/Crosswordsearch page exposes the required values if it finds an active
+custom CSS file.
+
 = Content management =
 
 The *Assign projects and editors* tab is used to set up projects. Each crossword belongs
