@@ -159,6 +159,20 @@ saved to the database, albeit at this point this information is not used anywher
 
 == Changelog ==
 
+= 0.4.0 =
+
+New or changed features:
+
+* Custom theming support loads custom CSS file from active theme folder
+* Error messages on adminstrative page are now collected in one place
+* Urge user to reload the adminstrative page after a forced re-login triggerd by wp-auth-check
+
+Internal improvements and bug fixes:
+
+* Documentation of PHP code
+* Stay on the correct administrative page tab after reload
+* Bypass escape service for localized strings in expressions
+
 = 0.3.3 =
 
 * WordPress 4.0 compatibility

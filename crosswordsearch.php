@@ -2,7 +2,7 @@
 /*
 Plugin Name: crosswordsearch
 Plugin URI: https://github.com/ccprog/crosswordsearch
-Version: 0.3.3
+Version: 0.4.0
 Author: Claus Colloseus
 Author URI: http://browser-unplugged.net
 Text Domain: crw-text
@@ -29,8 +29,13 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
 
-/* plugin installation */
+/* ----------------------------------
+ * Bootstrap
+ * ---------------------------------- */
+
 define('CRW_DB_VERSION', '0.4');
+define('CRW_DIMENSIONS_OPTION', 'crw_dimensions');
+define('CRW_CUSTOM_DIMENSIONS_OPTION', 'crw_custom_dimensions');
 define('CRW_ROLES_OPTION', 'crw_roles_caps');
 define('CRW_NONCE_NAME', '_crwnonce');
 define('NONCE_CROSSWORD', 'crw_crossword_');
@@ -54,40 +59,24 @@ $project_table_name = $wpdb->prefix . "crw_projects";
 $data_table_name = $wpdb->prefix . "crw_crosswords";
 $editors_table_name = $wpdb->prefix . "crw_editors";
 
-function crw_change_project_list ( $method, $project, $args, &$debug = '' ) {
-    global $wpdb, $project_table_name;
+$child_css = crw_get_child_stylesheet();
 
-    if ( 'add' == $method ) {
-        ksort($args);
-        // resulting order: default_level, maximum_level, project
-        $success = $wpdb->insert( $project_table_name, $args, array('%d', '%d', '%s') );
-    } elseif ( 'remove' == $method ) {
-        $success = $wpdb->query( $wpdb->prepare("
-            DELETE FROM $project_table_name
-            WHERE project = %s
-        ", $project) );
-        if ( $success === false ) {
-            // not really true, but I can't read error numbers...
-            $error = __('There are still riddles saved for that project. You need to delete them before you can remove the project.', 'crw-text');
-            $debug = array( $wpdb->last_error, $wpdb->last_query );
-            crw_send_error($error, $debug);
-        }
-    } elseif ( 'update' == $method ) {
-        $success = $wpdb->query( $wpdb->prepare("
-            UPDATE $project_table_name
-            SET project=%s, default_level=%d, maximum_level=%d
-            WHERE project=%s
-        ", $args['project'], $args['default_level'], $args['maximum_level'], $project) );
-        // no row altered is not considered an error
-        if (0 === $success) {
-            $success = true;
-        }
-    }
+/* ----------------------------------
+ * Plugin Installation
+ * ---------------------------------- */
 
-    $debug = array( $wpdb->last_error, $wpdb->last_query );
-    return $success;
-}
-
+/**
+ * Installation routine executed on activation.
+ *
+ * @global WP_Roles $wp_roles
+ * @global wpdb $wpdb
+ * @global string $charset_collate
+ * @global string $project_table_name
+ * @global string $data_table_name
+ * @global string $editors_table_name
+ *
+ * @return void
+ */
 function crw_install () {
     global $wp_roles, $wpdb, $charset_collate, $project_table_name, $data_table_name, $editors_table_name;
     require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
@@ -160,6 +149,35 @@ CREATE TABLE IF NOT EXISTS $editors_table_name (
 }
 register_activation_hook( CRW_PLUGIN_FILE, 'crw_install' );
 
+
+/**
+ * Update tasks.
+ *
+ * Hooked to plugins_loaded.
+ *
+ * @return void
+ */
+function crw_update () {
+    // v0.3.3 -> v0.4.0
+    $dimensions = array(
+        'fieldBorder' => 1,
+        'tableBorder' => 1,
+        'field' => 30,
+        'handleInside' => 4,
+        'handleOutside' => 8
+    );
+    add_option( CRW_DIMENSIONS_OPTION, $dimensions );
+    add_option( CRW_CUSTOM_DIMENSIONS_OPTION, $dimensions );
+}
+add_action( 'plugins_loaded', 'crw_update' );
+
+/**
+ * Option reset routine executed on deactivation.
+ *
+ * @global WP_Roles $wp_roles
+ *
+ * @return void
+ */
 function crw_deactivate () {
     global $wp_roles;
 
@@ -170,7 +188,17 @@ function crw_deactivate () {
 }
 register_deactivation_hook( CRW_PLUGIN_FILE, 'crw_deactivate' );
 
-// test data
+
+/**
+ * Test data installation routine executed on activation
+ *
+ * Only executed on WP_DEBUG === true.
+ *
+ * @global wpdb $wpdb
+ * @global string $data_table_name
+ *
+ * @return void
+ */
 function crw_install_data () {
     global $wpdb, $data_table_name;
 
@@ -202,22 +230,65 @@ function crw_install_data () {
 }
 register_activation_hook( CRW_PLUGIN_FILE, 'crw_install_data' );
 
-/* plugin load routines */
+/* ----------------------------------
+ * Plugin Load Routines
+ * ---------------------------------- */
 
 $crw_has_crossword = false;
 
+/**
+ * Load localization.
+ *
+ * Hooked to plugins_loaded.
+ *
+ * @return void
+ */
 function crw_load_text () {
     load_plugin_textdomain( 'crw-text', false, 'crosswordsearch/languages/' );
 }
 add_action('plugins_loaded', 'crw_load_text');
 
+/**
+ * Add attributes needed for Angular to html tag.
+ *
+ * @return void
+ */
 function crw_add_angular_attribute ($attributes) {
     return $attributes . ' xmlns:ng="http://angularjs.org" id="ng-app" ng-app="crwApp"';
 }
 
+/**
+ * Enqueue scripts and js data.
+ *
+ * The js data have the following format:
+ *
+ *     object crwBasics {
+ *         object letterDist {
+ *             number <letter name> Percentage of letter usage.
+ *         }
+ *         string letterRegEx Regex for allowed letters.
+ *         object locale List of localized strings, see l10n.php.
+ *         string pluginPath Plugin URI.
+ *         string ajaxUrl Ajax URI.
+ *         object dimensions {
+ *             number tableBorder
+ *             number field
+ *             number fieldBorder
+ *             number handleOutside
+ *             number handleInside
+ *         }
+ *     }
+ *
+ * @global boolean $crw_has_crossword
+ * @global boolean $child_css
+ *
+ * @param  string $hook The calling action hook.
+ *
+ * @return void
+ */
 function add_crw_scripts ( $hook ) {
     require_once 'l10n.php';
-    global $crw_has_crossword;
+    global $crw_has_crossword, $child_css;
 
     $locale_data = crw_get_locale_data();
 
@@ -228,11 +299,22 @@ function add_crw_scripts ( $hook ) {
         wp_enqueue_script('crw-js', CRW_PLUGIN_URL . 'js/crosswordsearch' . (WP_DEBUG ? '' : '.min') . '.js', array( 'angular', 'angular-route', 'quantic-stylemodel' ));
         wp_localize_script('crw-js', 'crwBasics', array_merge($locale_data, array(
             'pluginPath' => CRW_PLUGIN_URL,
-            'ajaxUrl' => admin_url( 'admin-ajax.php' )
+            'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+            'dimensions' => get_option( $child_css ? CRW_CUSTOM_DIMENSIONS_OPTION : CRW_DIMENSIONS_OPTION )
         )));
 	}
 }
 
+/**
+ * Hook up attribute addition and script loading for pages containing the shortcode.
+ *
+ * Hooked to get_header.
+ *
+ * @global WP $post
+ * @global boolean $crw_has_crossword
+ *
+ * @return void
+ */
 function crw_set_header () {
 	global $post, $crw_has_crossword;
 
@@ -244,13 +326,102 @@ function crw_set_header () {
 }
 add_action( 'get_header', 'crw_set_header');
 
+/**
+ * Retrieve URI of an optional extra stylesheet in the theme directory.
+ *
+ * @return mixed URI string if stylesheet exists, false else.
+ */
+function crw_get_child_stylesheet () {
+    $css_file = '/crosswordsearch.css';
+
+    if ( file_exists( get_stylesheet_directory() . $css_file ) ) {
+        return get_stylesheet_directory_uri() . $css_file;
+    } elseif ( file_exists( get_template_directory() . $css_file ) ) {
+        return get_template_directory_uri() . $css_file;
+    } else {
+        return false;
+    }
+}
+
+/**
+ * Add inline stylesheet composed from dimensions option data.
+ *
+ * @global WP_Styles $wp_styles
+ * @global boolean $child_css
+ *
+ * @return void
+ */
+function crw_compose_style () {
+    global $wp_styles, $child_css;
+
+    $dimensions = get_option( $child_css ? CRW_CUSTOM_DIMENSIONS_OPTION : CRW_DIMENSIONS_OPTION );
+
+    $code = '.crw-grid, .crw-mask {
+    border-width: ' . $dimensions['tableBorder'] . 'px;
+}
+table.crw-table {
+    border-spacing: ' . $dimensions['fieldBorder'] . 'px;
+}
+td.crw-field, td.crw-field  > div {
+    height: ' . $dimensions['field'] . 'px;
+    width: ' . $dimensions['field'] . 'px;
+    min-width: ' . $dimensions['field'] . 'px;
+}
+td.crw-field span {
+    height: ' . ($dimensions['field'] - 2) . 'px;
+    width: ' . ($dimensions['field'] - 2) . 'px;
+}
+td.crw-field button {
+    height: ' . ($dimensions['field'] - 4) . 'px;
+    width: ' . ($dimensions['field'] - 4) . 'px;
+}
+div.crw-marked {
+    width: ' . ($dimensions['field'] + $dimensions['fieldBorder']) . 'px;
+    height: ' . ($dimensions['field'] + $dimensions['fieldBorder']) . 'px;
+}';
+
+    wp_enqueue_style('crw', CRW_PLUGIN_URL . 'css/crosswordsearch.css');
+    if ( $child_css ) {
+        wp_enqueue_style('crw-child', $child_css, 'crw');
+        $dep = 'crw-child';
+    } else {
+        $dep = 'crw';
+    }
+        $wp_styles->add_inline_style( $dep, $code );
+}
+
+/**
+ * Hook up attribute addition and script loading for settings pages.
+ *
+ * Hooked to load-settings_page_crw_options.
+ *
+ * @return void
+ */
 function crw_set_admin_header () {
     add_filter ( 'language_attributes', 'crw_add_angular_attribute' );
     add_action( 'admin_enqueue_scripts', 'add_crw_scripts');
-    wp_enqueue_style('crw-css', CRW_PLUGIN_URL . 'css/crosswordsearch.css');
+    crw_compose_style();
 }
 add_action( 'load-settings_page_crw_options', 'crw_set_admin_header');
 
+/**
+ * Validity test for shortcode.
+ *
+ * @global wpdb $wpdb
+ * @global string $project_table_name
+ *
+ * @param array $atts {
+ *     Shortcode attributes.
+ *
+ *     @type string mode Accepts 'build', 'solve', or 'preview'.
+ *     @type boolean restricted
+ *     @type string project
+ *     @type string name
+ * }
+ * @param array(string) $names_list List of existing crossword names in project.
+ *
+ * @return mixed HTML formatted error message or false for valid usage.
+ */
 function crw_test_shortcode ($atts, $names_list) {
     global $wpdb, $project_table_name;
 
@@ -287,19 +458,16 @@ function crw_test_shortcode ($atts, $names_list) {
     return false;
 }
 
-function crw_get_names_list ($project) {
-    global $wpdb, $data_table_name;
-
-    return $wpdb->get_col( $wpdb->prepare("
-        SELECT name
-        FROM $data_table_name
-        WHERE project = %s AND NOT pending
-        ORDER BY name
-    ", $project) );
-}
-
-/* load the crossword into a post */
-
+/**
+ * Load the crossword into a post.
+ *
+ * Hooked to 'crosswordsearch' shortcode
+ *
+ * @param array $atts Raw shortcode attributes.
+ * @param string $content Optional. Not evaluated, defaults to null.
+ *
+ * @return string Angular app HTML partial including app.php and immediate.php.
+ */
 function crw_shortcode_handler( $atts, $content = null ) {
     $filtered_atts = shortcode_atts( array(
 		'mode' => 'build',
@@ -340,7 +508,7 @@ function crw_shortcode_handler( $atts, $content = null ) {
     }
 
 	// load stylesheet into page bottom to get it past theming
-    wp_enqueue_style('crw-css', CRW_PLUGIN_URL . 'css/crosswordsearch.css');
+    crw_compose_style();
 
     ob_start();
     include 'app.php';
@@ -351,9 +519,23 @@ function crw_shortcode_handler( $atts, $content = null ) {
 }
 add_shortcode( 'crosswordsearch', 'crw_shortcode_handler' );
 
-/* ajax communication */
+/* ----------------------------------
+ * Ajax Communication: Utilities
+ * ---------------------------------- */
 
-// checks for json crossword data
+/**
+ * Tests the JSON crossword data
+ *
+ * @param string $json Raw json string.
+ * @param array(string) &$msg By reference. List of debug error messages.
+ *
+ * @return mixed {
+ *     Crossword metadata or false if not valid.
+ *
+ *     @type string $name Crossword name.
+ *     @type int $name Difficulty level.
+ * }
+ */
 function crw_verify_json($json, &$msg) {
     $easy_directions = array('right', 'down');
     include('schema/jsv4.php');
@@ -428,7 +610,24 @@ function crw_verify_json($json, &$msg) {
     );
 }
 
-// format and send errors as json
+/**
+ * Send error data.
+ *
+ * Sends JSON data:
+ *
+ *     object {
+ *         string error Error message.
+ *         array debug [
+ *             string Debug message.
+ *         ]
+ *     }
+ *
+ * @param string $error Localized error message.
+ * @param mixed $debug List of debug error messages or single string is only
+ * sent if WP_DEBUG === true.
+ *
+ * @return void
+ */
 function crw_send_error ( $error, $debug ) {
     $obj = array(
         'error' => $error
@@ -443,6 +642,17 @@ function crw_send_error ( $error, $debug ) {
     wp_send_json($obj);
 }
 
+/**
+ * Test if a user is assigned to a project.
+ *
+ * @global wpdb $wpdb
+ * @global string $editors_table_name
+ *
+ * @param WP_User $user User object.
+ * @param string $project Project name.
+ *
+ * @return boolean
+ */
 function crw_is_editor ( $user, $project ) {
     global $wpdb, $editors_table_name;
 
@@ -453,10 +663,23 @@ function crw_is_editor ( $user, $project ) {
     ", $project) );
 }
 
-// three-part permission test:
-// 1. correct nonce for action?
-// 2. correct capability for user and action?
-// 3. for editing, editing rights in project for user?
+/**
+ * Permission test for all Ajax requests.
+ *
+ * 1. correct nonce for action?
+ * 2. correct capability for user and action?
+ * 3. for editing, editing rights in project for user?
+ * Calls crw_send_error() if it does not pass.
+ *
+ * @see crw_send_error()
+ *
+ * @param string $for Context string. Accepts 'crossword', 'cap', 'admin', 'push',
+ * 'edit' and 'review'.
+ * @param WP_User $user User object. Also catches invalid users.
+ * @param string $project Optional. Project name.
+ *
+ * @return boolean True if the user has restricted rights.
+ */
 function crw_test_permission ( $for, $user, $project=null ) {
     $error = __('You do not have permission.', 'crw-text');
 
@@ -522,7 +745,108 @@ function crw_test_permission ( $for, $user, $project=null ) {
     return $restricted;
 }
 
-// data for Settings->Options tab
+/**
+ * List existing crossword names in project.
+ *
+ * @global wpdb $wpdb
+ * @global string $data_table_name
+ *
+ * @return array(string)
+ */
+function crw_get_names_list ($project) {
+    global $wpdb, $data_table_name;
+
+    return $wpdb->get_col( $wpdb->prepare("
+        SELECT name
+        FROM $data_table_name
+        WHERE project = %s AND NOT pending
+        ORDER BY name
+    ", $project) );
+}
+
+/**
+ * Change Project list.
+ *
+ * @global wpdb $wpdb
+ * @global string $project_table_name
+ *
+ * @param  string $method Action to execute. Accepts 'add', 'update' and 'delete'.
+ * @param  string $project Project name known to the database. Not evaluated for $method = 'add'.
+ * @param  array $args {
+ *     Database fields.
+ *     @type int $default_level Default difficulty level.
+ *     @type int $maximum_level Default difficulty level.
+ *     @type string $project New project name.
+ * }
+ * @param  string &$var debug Optional, by reference. Debug message string. Defaults to ''.
+ * @return boolean Action success.
+ */
+function crw_change_project_list ( $method, $project, $args, &$debug = '' ) {
+    global $wpdb, $project_table_name;
+
+    if ( 'add' == $method ) {
+        ksort($args);
+        // resulting order: default_level, maximum_level, project
+        $success = $wpdb->insert( $project_table_name, $args, array('%d', '%d', '%s') );
+    } elseif ( 'remove' == $method ) {
+        $success = $wpdb->query( $wpdb->prepare("
+            DELETE FROM $project_table_name
+            WHERE project = %s
+        ", $project) );
+        if ( $success === false ) {
+            // not really true, but I can't read error numbers...
+            $error = __('There are still riddles saved for that project. You need to delete them before you can remove the project.', 'crw-text');
+            $debug = array( $wpdb->last_error, $wpdb->last_query );
+            crw_send_error($error, $debug);
+        }
+    } elseif ( 'update' == $method ) {
+        $success = $wpdb->query( $wpdb->prepare("
+            UPDATE $project_table_name
+            SET project=%s, default_level=%d, maximum_level=%d
+            WHERE project=%s
+        ", $args['project'], $args['default_level'], $args['maximum_level'], $project) );
+        // no row altered is not considered an error
+        if (0 === $success) {
+            $success = true;
+        }
+    }
+
+    $debug = array( $wpdb->last_error, $wpdb->last_query );
+    return $success;
+}
+
+/* ----------------------------------
+ * Ajax Communication: Settings page
+ * ---------------------------------- */
+
+/**
+ * Answer request for Options tab data.
+ *
+ * Hooked to wp_ajax_get_crw_capabilities.
+ * Sends JSON data:
+ *
+ *     object {
+ *         array capabilities [
+ *             object {
+ *                 string name Role name.
+ *                 string local Localized role name.
+ *                 string cap Capability. 'edit_crossword', 'push_crossword', or ''.
+ *             }
+ *         ]
+ *         object dimensions {
+ *             number tableBorder
+ *             number field
+ *             number fieldBorder
+ *             number handleOutside
+ *             number handleInside
+ *         }
+ *         string _crwnonce
+ *     }
+ *
+ * @global WP_Roles $wp_roles
+ *
+ * @return void
+ */
 function crw_send_capabilities () {
     global $wp_roles;
 
@@ -540,12 +864,24 @@ function crw_send_capabilities () {
 
     wp_send_json( array(
         'capabilities' => $capabilities,
+        'dimensions' => get_option(CRW_CUSTOM_DIMENSIONS_OPTION),
         CRW_NONCE_NAME => wp_create_nonce(NONCE_OPTIONS)
     ) );
 }
 add_action( 'wp_ajax_get_crw_capabilities', 'crw_send_capabilities' );
 
-// update capabilities list in (backup) option entry and in live role data
+/**
+ * Update capabilities list in (backup) option entry and in live role data.
+ *
+ * Hooked to wp_ajax_update_crw_capabilities.
+ * Calls crw_send_capabilities() to send data.
+ *
+ * @see crw_send_capabilities()
+ *
+ * @global WP_Roles $wp_roles
+ *
+ * @return void
+ */
 function crw_update_capabilities () {
     global $wp_roles;
     $error = __('Editing rights could not be updated.', 'crw-text');
@@ -590,7 +926,79 @@ function crw_update_capabilities () {
 }
 add_action( 'wp_ajax_update_crw_capabilities', 'crw_update_capabilities' );
 
-// data for Settings->Projects tab
+/**
+ * Update dimensions list in option entry.
+ *
+ * Hooked to wp_ajax_update_crw_dimensions.
+ * Calls crw_send_capabilities() to send data.
+ *
+ * @see crw_send_capabilities()
+ *
+ * @return void
+ */
+function crw_update_dimensions () {
+    $error = __('Dimensions could not be updated.', 'crw-text');
+
+    crw_test_permission( 'cap', wp_get_current_user() );
+
+    $dimensions_raw = json_decode( wp_unslash( $_POST['dimensions'] ), true );
+    if ( !is_array($dimensions_raw) ) {
+        $debug = 'invalid data: no array';
+        crw_send_error($error, $debug);
+    } else {
+        $dimensions = get_option(CRW_CUSTOM_DIMENSIONS_OPTION);
+        foreach ( $dimensions as $key => $dim ) {
+            if ( !key_exists($key, $dimensions_raw) ) {
+                $debug = 'invalid data: missing key ' . $key;
+                crw_send_error($error, $debug);
+            } elseif ( !is_int($dimensions_raw[$key]) || $dimensions_raw[$key] < 0 ) {
+                $debug = 'invalid data: invalid size ' . $key . ':'. $dimensions_raw[$key];
+                crw_send_error($error, $debug);
+            } else {
+                $dimensions[$key] = $dimensions_raw[$key];
+            }
+        }
+    }
+
+    update_option(CRW_CUSTOM_DIMENSIONS_OPTION, $dimensions);
+
+    crw_send_capabilities();
+}
+add_action( 'wp_ajax_update_crw_dimensions', 'crw_update_dimensions' );
+
+/**
+ * Answer request for Projects tab data.
+ *
+ * Hooked to wp_ajax_get_admin_data.
+ * Sends JSON data:
+ *
+ *     object {
+ *         array projects [
+ *             object {
+ *                 string name
+ *                 number default_level
+ *                 number maximum_level
+ *                 number used_level
+ *                 array editors [
+ *                     string user_id
+ *                 ]
+ *             }
+ *         ]
+ *         array all_users [
+ *             object {
+ *                 string user_id
+ *                 string user_name Display name.
+ *             }
+ *         ]
+ *         string _crwnonce
+ *     }
+ *
+ * @global wpdb $wpdb
+ * @global string $project_table_name
+ * @global string $editors_table_name
+ *
+ * @return void
+ */
 function crw_send_admin_data () {
     global $wpdb, $project_table_name, $editors_table_name;
 
@@ -606,7 +1014,7 @@ function crw_send_admin_data () {
         INNER JOIN $wpdb->users as wpu ON wpu.ID = et.user_id)
         ON et.project = pt.project
     "), function ($entry) {
-        // rule out users whos editor capability was revoked
+        // rule out users whose editor capability was revoked
         return !$entry->user_id || user_can( get_user_by('id', $entry->user_id), CRW_CAP_CONFIRMED );
     } );
 
@@ -647,7 +1055,18 @@ function crw_send_admin_data () {
 }
 add_action( 'wp_ajax_get_admin_data', 'crw_send_admin_data' );
 
-// add, update or remove a project
+/**
+ * Add, update or remove a project.
+ *
+ * Hooked to wp_ajax_save_project.
+ * Calls crw_change_project_list() to execute action and
+ * crw_send_admin_data() to send data.
+ *
+ * @see crw_change_project_list()
+ * @see crw_send_admin_data()
+ *
+ * @return void
+ */
 function crw_save_project () {
     $level_list = range(0, 3);
 
@@ -692,7 +1111,20 @@ function crw_save_project () {
 }
 add_action( 'wp_ajax_save_project', 'crw_save_project' );
 
-// update editors list
+/**
+ * Update editors list.
+ *
+ * Hooked to wp_ajax_update_editors.
+ * Calls crw_send_admin_data() to send data.
+ *
+ * @see crw_send_admin_data()
+ *
+ * @global wpdb $wpdb
+ * @global string $project_table_name
+ * @global string $editors_table_name
+ *
+ * @return void
+ */
 function crw_update_editors () {
     global $wpdb, $editors_table_name, $project_table_name;
     $error = __('The editors could not be updated.', 'crw-text');
@@ -746,7 +1178,34 @@ function crw_update_editors () {
 }
 add_action( 'wp_ajax_update_editors', 'crw_update_editors' );
 
-// data for Settings->Review tab
+/**
+ * Sends Review tab data.
+ *
+ * Sends JSON data:
+ *
+ *     object {
+ *         array projects [
+ *             object {
+ *                 string name Project name.
+ *                 array confirmed [
+ *                     string Crossword name.
+ *                 ]
+ *                 array pending [
+ *                     string Crossword name.
+ *                 ]
+ *             }
+ *         ]
+ *         string _crwnonce
+ *     }
+ *
+ * @global wpdb $wpdb
+ * @global string $project_table_name
+ * @global string $editors_table_name
+ *
+ * @param WP_User $user User Object.
+ *
+ * @return void
+ */
 function crw_send_projects_and_riddles ($user) {
     global $wpdb, $data_table_name, $editors_table_name;
 
@@ -776,6 +1235,16 @@ function crw_send_projects_and_riddles ($user) {
     ) );
 }
 
+/**
+ * Answer request for Review tab data.
+ *
+ * Hooked to wp_ajax_list_projects_and_riddles.
+ * Calls crw_send_projects_and_riddles() to send data.
+ *
+ * @see crw_send_projects_and_riddles()
+ *
+ * @return void
+ */
 function crw_list_projects_and_riddles () {
     $user = wp_get_current_user();
     crw_test_permission( 'review', $user );
@@ -784,7 +1253,19 @@ function crw_list_projects_and_riddles () {
 }
 add_action( 'wp_ajax_list_projects_and_riddles', 'crw_list_projects_and_riddles' );
 
-// delete a crossword
+/**
+ * Delete a crossword.
+ *
+ * Hooked to wp_ajax_delete_crossword.
+ * Calls crw_send_projects_and_riddles() to send data.
+ *
+ * @see crw_send_projects_and_riddles()
+ *
+ * @global wpdb $wpdb
+ * @global string $data_table_name
+ *
+ * @return void
+ */
 function crw_delete_crossword() {
     global $wpdb, $data_table_name;
     $error = __('The crossword could not be deleted.', 'crw-text');
@@ -812,7 +1293,19 @@ function crw_delete_crossword() {
 }
 add_action( 'wp_ajax_delete_crossword', 'crw_delete_crossword' );
 
-// approve a crossword
+/**
+ * Approve a crossword.
+ *
+ * Hooked to wp_ajax_approve_crossword.
+ * Calls crw_send_projects_and_riddles() to send data.
+ *
+ * @see crw_send_projects_and_riddles()
+ *
+ * @global wpdb $wpdb
+ * @global string $data_table_name
+ *
+ * @return void
+ */
 function crw_approve_crossword() {
     global $wpdb, $data_table_name;
     $error = __('The crossword could not be approved.', 'crw-text');
@@ -842,7 +1335,29 @@ function crw_approve_crossword() {
 }
 add_action( 'wp_ajax_approve_crossword', 'crw_approve_crossword' );
 
-// common function for insert and update shares data testing tasks and error handling
+/* ----------------------------------
+ * Ajax Communication: Posts
+ * ---------------------------------- */
+
+ /**
+ * Insert or update a crossword.
+ *
+ * Hooked to wp_ajax_save_crossword and wp_ajax_nopriv_save_crossword.
+ * Sends JSON data:
+ *
+ *     object {
+ *         array namesList [
+ *             string Crossword name.
+ *         ]
+ *         string _crwnonce
+ *     }
+ *
+ * @global wpdb $wpdb
+ * @global string $project_table_name
+ * @global string $data_table_name
+ *
+ * @return void
+ */
 function crw_save_crossword () {
     global $wpdb, $project_table_name, $data_table_name;
     $error = __('You are not allowed to save the crossword.', 'crw-text');
@@ -972,7 +1487,24 @@ function crw_save_crossword () {
 add_action( 'wp_ajax_nopriv_save_crossword', 'crw_save_crossword' );
 add_action( 'wp_ajax_save_crossword', 'crw_save_crossword' );
 
-// select crossword data
+/**
+ * Answer request for crossword data.
+ *
+ * Hooked to wp_ajax_get_crossword and wp_ajax_nopriv_get_crossword.
+ * Sends JSON data:
+ *
+ *     object {
+ *         object crossword See schema/schema.json for data format.
+ *         number default_level
+ *         number maximum_level
+ *         array namesList [
+ *             string Crossword name.
+ *         ]
+ *         string _crwnonce
+ *     }
+ *
+ * @return void
+ */
 function crw_get_crossword() {
     global $wpdb, $data_table_name, $project_table_name;
     $error = __('The crossword could not be retrieved.', 'crw-text');
@@ -1021,9 +1553,19 @@ function crw_get_crossword() {
 add_action( 'wp_ajax_nopriv_get_crossword', 'crw_get_crossword' );
 add_action( 'wp_ajax_get_crossword', 'crw_get_crossword' );
 
-/* settings page load routines */
+/* ----------------------------------
+ * Settings Page Load Routines
+ * ---------------------------------- */
 
-// context sensitive help
+/**
+ * Add context sensitive help.
+ *
+ * Hooked to load-$settings_page.
+ *
+ * @see WP_Screen::add_help_tab()
+ *
+ * @return void
+ */
 function crw_add_help_tab () {
     $screen = get_current_screen();
 
@@ -1032,12 +1574,15 @@ function crw_add_help_tab () {
             'id'	=> 'crw-help-tab-options',
             'title'	=> __('Options', 'crw-text'),
             'content'	=> '<p>' . __('Riddles saved by restricted editors need the approval of full editors before they can appear for other users.', 'crw-text') . '</p><p>' .
-                __('Full editors can only act on the projects they are assigned to.', 'crw-text') . '</p>',
+                __('Full editors can only act on the projects they are assigned to.', 'crw-text') . '</p><p>' .
+                sprintf( __('For custom theming, place a file %1$s with overrides to the default theme into your theme folder.', 'crw-text'), '<code>crosswordsearch.css</code>') . '</p><p>' .
+                __('There are some dimension values that are used in computations during drag operations. If you have a custom theme, you might have to additionally adjust these values.', 'crw-text') . '</p><p>' .
+                __('Dimension settings are pixel values and used uniformly for heights and widths.', 'crw-text') . '</p><p>' . '</p>',
         ) );
         $screen->add_help_tab( array(
             'id'	=> 'crw-help-tab-projects',
             'title'	=> __('Projects', 'crw-text'),
-            'content'	=> '<p>' . __('If you change the name of a project, remember that you need to change it also in every shortcode refering to it.', 'crw-text') . '</p><p>' . __('The lowest eligible maximum difficulty level is either the the default level or the highest level used in an existing riddle, whatever is higher.', 'crw-text') . '</p><p>'
+            'content'	=> '<p>' . __('If you change the name of a project, remember that you need to change it also in every shortcode referring to it.', 'crw-text') . '</p><p>' . __('The lowest eligible maximum difficulty level is either the the default level or the highest level used in an existing riddle, whatever is higher.', 'crw-text') . '</p><p>'
                 . __('You need to assign editors to a project in order for them to see its riddles in the <em>Review</em> tab.', 'crw-text') . '</p><p>' .
                 __('If you want to delete a project, you need first to delete all its riddles.', 'crw-text') . '</p>',
         ) );
@@ -1051,16 +1596,38 @@ function crw_add_help_tab () {
     }
 }
 
-// menu entry
+/**
+ * Init Settings page and hook up context sensitive help.
+ *
+ * Hooked to admin_menu.
+ *
+ * @see add_options_page()
+ *
+ * @return void
+ */
 function crw_admin_menu () {
-    $settings_page = add_options_page( 'Crosswordsearch', 'Crosswordsearch', CRW_CAP_CONFIRMED, 'crw_options', 'crw_show_options' );
+    $settings_page = add_options_page( __('Crosswordsearch Administration', 'crw-text'), 'Crosswordsearch', CRW_CAP_CONFIRMED, 'crw_options', 'crw_show_options' );
     add_action('load-'.$settings_page, 'crw_add_help_tab');
 };
 add_action('admin_menu', 'crw_admin_menu');
 
-// load single tab template
+/**
+ * Answer request for single tab template.
+ *
+ * Hooked to wp_ajax_get_option_tab.
+ * Sends HTML partial optionsTab.php, editorsTab.php or reviewTab.php.
+ * reviewTab.php also includes app.php.
+ *
+ * @global $child_css
+ *
+ * @return void
+ */
 function crw_get_option_tab () {
-    if ( !wp_verify_nonce( $_GET[CRW_NONCE_NAME], NONCE_SETTINGS ) ) {
+    global $child_css;
+
+    if ('invalid' == $_GET['tab'] ) {
+        wp_die( __( 'You need to hit your browser\'s Reload button.', 'crw-text' ) );
+    } elseif ( !wp_verify_nonce( $_GET[CRW_NONCE_NAME], NONCE_SETTINGS ) ) {
         wp_die( __( 'You do not have sufficient permissions to access this page.' ) );
     }
 
@@ -1077,7 +1644,13 @@ function crw_get_option_tab () {
 }
 add_action( 'wp_ajax_get_option_tab', 'crw_get_option_tab' );
 
-// load wrapper settings page
+/**
+ * Send wrapper settings page template.
+ *
+ * Sends HTML partial settings.php, which also includes immediate.php.
+ *
+ * @return void
+ */
 function crw_show_options() {
 
 	if ( !current_user_can( CRW_CAP_CONFIRMED ) )  {

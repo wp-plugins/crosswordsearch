@@ -1,5 +1,5 @@
 /*
-crosswordsearch Wordpress plugin v0.3.3
+crosswordsearch Wordpress plugin v0.4.0
 Copyright Claus Colloseus 2014 for RadiJojo.de
 
 This program is free software: Redistribution and use, with or
@@ -194,6 +194,7 @@ crwApp.factory("basics", [ "reduce", function(reduce) {
     });
     return {
         colors: [ "black", "red", "green", "blue", "orange", "violet", "aqua" ],
+        dimensions: crwBasics.dimensions,
         pluginPath: crwBasics.pluginPath,
         randomColor: function(last) {
             var color;
@@ -207,7 +208,6 @@ crwApp.factory("basics", [ "reduce", function(reduce) {
             return list.slice(pos, pos + 1);
         },
         letterRegEx: new RegExp(crwBasics.letterRegEx),
-        fieldSize: 31,
         directionMapping: {
             "down-right": {
                 end: "up-left",
@@ -256,19 +256,31 @@ crwApp.factory("basics", [ "reduce", function(reduce) {
     };
 } ]);
 
-crwApp.factory("ajaxFactory", [ "$http", "$q", function($http, $q) {
+crwApp.constant("nonces", {});
+
+crwApp.factory("ajaxFactory", [ "$http", "$q", "nonces", function($http, $q, nonces) {
     $http.defaults.headers.post["Content-Type"] = "application/x-www-form-urlencoded";
     var httpDefaults = {
         transformRequest: jQuery.param,
         method: "POST",
         url: crwBasics.ajaxUrl
     };
-    var nonces = {};
+    jQuery(document).on("heartbeat-tick", function(e, data) {
+        if (data["wp-auth-check"] === false) {
+            angular.forEach(nonces, function(val, key) {
+                delete nonces[key];
+            });
+        }
+    });
     var serverError = function(response) {
-        return $q.reject({
-            error: "server error",
-            debug: "status " + response.status
-        });
+        if (response.heartbeat) {
+            return $q.reject(response);
+        } else {
+            return $q.reject({
+                error: "server error",
+                debug: [ "status " + response.status ]
+            });
+        }
     };
     var inspectResponse = function(response, context) {
         var error = false;
@@ -287,18 +299,29 @@ crwApp.factory("ajaxFactory", [ "$http", "$q", function($http, $q) {
         }
         return response.data;
     };
+    var request = function(data, context) {
+        var bodyData = angular.extend({
+            _crwnonce: nonces[context]
+        }, data);
+        var config = angular.extend({
+            data: bodyData
+        }, httpDefaults);
+        return $http(config);
+    };
     return {
         setNonce: function(nonce, context) {
             nonces[context] = nonce;
         },
         http: function(data, context) {
-            return $http(angular.extend({
-                data: angular.extend({
-                    _crwnonce: nonces[context]
-                }, data)
-            }, httpDefaults)).then(function(response) {
-                return inspectResponse(response, context);
-            }, serverError);
+            if (nonces[context]) {
+                return request(data, context).then(function(response) {
+                    return inspectResponse(response, context);
+                }, serverError);
+            } else {
+                return $q.reject({
+                    heartbeat: true
+                });
+            }
         }
     };
 } ]);
@@ -716,43 +739,88 @@ crwApp.directive("crwHelpFollow", [ "$document", function($document) {
     };
 } ]);
 
-crwApp.controller("AdminController", [ "$scope", "$routeParams", "$location", "qStore", "crosswordFactory", function($scope, $routeParams, $location, qStore, crosswordFactory) {
-    $scope.crw = crosswordFactory.getCrw();
-    $scope.immediateStore = qStore.addStore();
-    $scope.$routeParams = $routeParams;
-    $scope.setActive = function(tabHash) {
-        $location.path(tabHash);
+crwApp.directive("crwBindTrusted", [ "$sce", function($sce) {
+    return {
+        link: function(scope, element, attrs) {
+            scope.$watch(attrs.crwBindTrusted, function(newString) {
+                element.html(newString);
+            });
+        }
     };
 } ]);
 
+crwApp.controller("AdminController", [ "$scope", "$location", "qStore", "ajaxFactory", "crosswordFactory", function($scope, $location, qStore, ajaxFactory, crosswordFactory) {
+    $scope.crw = crosswordFactory.getCrw();
+    $scope.immediateStore = qStore.addStore();
+    $scope.setActive = function(tabHash) {
+        $scope.activeTab = tabHash;
+        $location.path($scope.activeTab);
+    };
+    $scope.prepare = function(tabHash, nonce) {
+        ajaxFactory.setNonce(nonce, "settings");
+        if (!$scope.activeTab && /^\/(capabilities|editor|review)/.test($location.path())) {
+            $scope.setActive($location.path());
+        } else {
+            $scope.setActive(tabHash);
+        }
+    };
+    $scope.setError = function(error) {
+        if (!error) {
+            $scope.globalError = null;
+        } else if (error.heartbeat) {
+            $location.path("");
+        } else {
+            $scope.globalError = error;
+        }
+    };
+} ]);
+
+crwApp.directive("crwDimension", function() {
+    return {
+        require: "ngModel",
+        link: function(scope, element, attrs, ctrl) {
+            ctrl.$parsers.unshift(function(viewValue) {
+                var val = parseInt(viewValue, 10);
+                if (isNaN(val) || val < 0 || val.toString() !== viewValue) {
+                    ctrl.$setValidity("dimension", false);
+                    return undefined;
+                } else {
+                    ctrl.$setValidity("dimension", true);
+                    return val;
+                }
+            });
+        }
+    };
+});
+
 crwApp.controller("OptionsController", [ "$scope", "ajaxFactory", function($scope, ajaxFactory) {
     var optionsContext = "options";
+    var displayOptions = function(data) {
+        $scope.capsEdit.$setPristine();
+        if ($scope.dimEdit) {
+            $scope.dimEdit.$setPristine();
+        }
+        $scope.setError(false);
+        $scope.capabilities = data.capabilities;
+        $scope.dimensions = data.dimensions;
+    };
+    $scope.update = function(part) {
+        var data = {
+            action: "update_crw_" + part
+        };
+        data[part] = angular.toJson($scope[part]);
+        ajaxFactory.http(data, optionsContext).then(displayOptions, $scope.setError);
+    };
     $scope.prepare = function(nonce) {
         ajaxFactory.setNonce(nonce, optionsContext);
         ajaxFactory.http({
             action: "get_crw_capabilities"
-        }, optionsContext).then(function(data) {
-            $scope.capabilities = data.capabilities;
-        }, function(error) {
-            $scope.capError = error;
-        });
-    };
-    $scope.updateCaps = function() {
-        ajaxFactory.http({
-            action: "update_crw_capabilities",
-            capabilities: angular.toJson($scope.capabilities)
-        }, optionsContext).then(function(data) {
-            $scope.capError = null;
-            $scope.capsEdit.$setPristine();
-            $scope.capabilities = data.capabilities;
-        }, function(error) {
-            $scope.capError = error;
-        });
+        }, optionsContext).then(displayOptions, $scope.setError);
     };
 } ]);
 
 crwApp.controller("EditorController", [ "$scope", "$filter", "ajaxFactory", function($scope, $filter, ajaxFactory) {
-    var adminContext = "admin";
+    var adminContext = "editors";
     $scope.levelList = function(which) {
         var min, max, list = [];
         if (which === "default") {
@@ -792,14 +860,6 @@ crwApp.controller("EditorController", [ "$scope", "$filter", "ajaxFactory", func
         getFilteredUsers();
         $scope.editorsPristine = true;
     };
-    $scope.prepare = function(nonce) {
-        ajaxFactory.setNonce(nonce, adminContext);
-        ajaxFactory.http({
-            action: "get_admin_data"
-        }, adminContext).then(showLoaded, function(error) {
-            $scope.loadError = error;
-        });
-    };
     $scope.$watch("projectMod.$pristine", function(p) {
         var truePristine = true;
         angular.forEach([ "name", "defaultL", "maximumL" ], function(name) {
@@ -828,8 +888,7 @@ crwApp.controller("EditorController", [ "$scope", "$filter", "ajaxFactory", func
         }
         $scope.projectMod.$setPristine();
         $scope.editorsPristine = true;
-        $scope.editorsSaveError = null;
-        $scope.projectSaveError = null;
+        $scope.setError(false);
     });
     $scope.abortProject = function() {
         if (!$scope.selectedProject) {
@@ -837,7 +896,7 @@ crwApp.controller("EditorController", [ "$scope", "$filter", "ajaxFactory", func
         }
         $scope.currentProject = angular.copy($scope.selectedProject);
         $scope.projectMod.$setPristine();
-        $scope.projectSaveError = null;
+        $scope.setError(false);
     };
     $scope.saveProject = function() {
         ajaxFactory.http({
@@ -849,9 +908,7 @@ crwApp.controller("EditorController", [ "$scope", "$filter", "ajaxFactory", func
             maximum_level: $scope.currentProject.maximum_level
         }, adminContext).then(function(data) {
             showLoaded(data, $scope.currentProject.name);
-        }, function(error) {
-            $scope.projectSaveError = error;
-        });
+        }, $scope.setError);
     };
     $scope.deleteProject = function() {
         var message = {
@@ -863,9 +920,7 @@ crwApp.controller("EditorController", [ "$scope", "$filter", "ajaxFactory", func
                 action: "save_project",
                 method: "remove",
                 project: $scope.selectedProject.name
-            }, adminContext).then(showLoaded, function(error) {
-                $scope.projectSaveError = error;
-            });
+            }, adminContext).then(showLoaded, $scope.setError);
         });
     };
     $scope.filtered_users = [];
@@ -882,7 +937,7 @@ crwApp.controller("EditorController", [ "$scope", "$filter", "ajaxFactory", func
         if (jQuery.inArray($scope.selectedUser, $scope.filtered_users) < 0) {
             $scope.selectedUser = $filter("orderBy")($scope.filtered_users, "user_name")[0];
         }
-        $scope.loadError = null;
+        $scope.setError(false);
     };
     $scope.$watchCollection("currentEditors", getFilteredUsers);
     var addUser = function(user) {
@@ -918,7 +973,7 @@ crwApp.controller("EditorController", [ "$scope", "$filter", "ajaxFactory", func
     };
     $scope.abortEditors = function() {
         $scope.currentEditors = angular.copy($scope.selectedProject.editors);
-        $scope.editorsSaveError = null;
+        $scope.setError(false);
         $scope.editorsPristine = true;
     };
     $scope.saveEditors = function() {
@@ -928,9 +983,13 @@ crwApp.controller("EditorController", [ "$scope", "$filter", "ajaxFactory", func
             editors: angular.toJson($scope.currentEditors)
         }, adminContext).then(function(data) {
             showLoaded(data, $scope.selectedProject.name);
-        }, function(error) {
-            $scope.editorsSaveError = error;
-        });
+        }, $scope.setError);
+    };
+    $scope.prepare = function(nonce) {
+        ajaxFactory.setNonce(nonce, adminContext);
+        ajaxFactory.http({
+            action: "get_admin_data"
+        }, adminContext).then(showLoaded, $scope.setError);
     };
 } ]);
 
@@ -966,16 +1025,7 @@ crwApp.controller("ReviewController", [ "$scope", "$filter", "ajaxFactory", func
         } else {
             $scope.selectedProject = $filter("orderBy")($scope.projects, "name")[0];
         }
-        $scope.reviewError = null;
-    };
-    $scope.prepare = function(nonceCrossword, nonceReview) {
-        ajaxFactory.setNonce(nonceCrossword, "crossword");
-        ajaxFactory.setNonce(nonceReview, reviewContext);
-        ajaxFactory.http({
-            action: "list_projects_and_riddles"
-        }, reviewContext).then(showLoaded, function(error) {
-            $scope.reviewError = error;
-        });
+        $scope.setError(false);
     };
     $scope.deleteCrossword = function(group) {
         var message = {
@@ -990,9 +1040,7 @@ crwApp.controller("ReviewController", [ "$scope", "$filter", "ajaxFactory", func
                 name: $scope.selectedCrossword[group]
             }, reviewContext).then(function(data) {
                 showLoaded(data, $scope.selectedProject.name);
-            }, function(error) {
-                $scope.reviewError = error;
-            });
+            }, $scope.setError);
         });
     };
     $scope.confirm = function() {
@@ -1012,9 +1060,7 @@ crwApp.controller("ReviewController", [ "$scope", "$filter", "ajaxFactory", func
                 $scope.selectedCrossword.confirmed = name;
                 $scope.selectedCrossword.pending = $filter("orderBy")($scope.selectedProject.pending, "toString()")[0];
                 $scope.activateGroup("confirmed");
-            }, function(error) {
-                $scope.reviewError = error;
-            });
+            }, $scope.setError);
         });
     };
     $scope.activateGroup = function(group) {
@@ -1050,18 +1096,42 @@ crwApp.controller("ReviewController", [ "$scope", "$filter", "ajaxFactory", func
             $scope.$broadcast("previewCrossword", newName);
         }
     });
+    $scope.prepare = function(nonceCrossword, nonceReview) {
+        ajaxFactory.setNonce(nonceCrossword, "crossword");
+        ajaxFactory.setNonce(nonceReview, reviewContext);
+        ajaxFactory.http({
+            action: "list_projects_and_riddles"
+        }, reviewContext).then(showLoaded, $scope.setError);
+    };
 } ]);
 
-crwApp.config([ "$routeProvider", function($routeProvider) {
-    var path = "";
-    $routeProvider.when("/:tab/:nonce", {
-        templateUrl: function($routeParams) {
-            path = $routeParams.tab + "/" + $routeParams.nonce;
-            return crwBasics.ajaxUrl + "?action=get_option_tab&tab=" + $routeParams.tab + "&_crwnonce=" + $routeParams.nonce;
+crwApp.config([ "$routeProvider", "nonces", function($routeProvider, nonces) {
+    var lastPath = "";
+    function getUrl(tab) {
+        var url = crwBasics.ajaxUrl + "?action=get_option_tab&tab=";
+        if (!nonces.settings) {
+            return url + "invalid";
+        }
+        return url + tab + "&_crwnonce=" + nonces.settings;
+    }
+    $routeProvider.when("/capabilities", {
+        templateUrl: function() {
+            lastPath = "/capabilities";
+            return getUrl("capabilities");
+        }
+    }).when("/editor", {
+        templateUrl: function() {
+            lastPath = "/editor";
+            return getUrl("editor");
+        }
+    }).when("/review", {
+        templateUrl: function() {
+            lastPath = "/review";
+            return getUrl("review");
         }
     }).otherwise({
         redirectTo: function() {
-            return path;
+            return lastPath;
         }
     });
 } ]);
@@ -1102,7 +1172,7 @@ crwApp.directive("crwMenu", [ "$compile", function($compile) {
                 element.attr("title", scope.value.title);
             });
         },
-        template: "{{value.display || value}}"
+        template: '<span crw-bind-trusted="value.display || value"></span>'
     };
 } ]);
 
@@ -1263,23 +1333,25 @@ crwApp.controller("CrosswordController", [ "$scope", "qStore", "basics", "crossw
 } ]);
 
 crwApp.controller("SizeController", [ "$scope", "$document", "basics", "StyleModelContainer", function($scope, $document, basics, StyleModelContainer) {
-    var size = basics.fieldSize, t, b, l, r, lg, tg, wg, hg, fwg, fhg;
+    var size = basics.dimensions.field + basics.dimensions.fieldBorder, handleShift = basics.dimensions.handleOutside + basics.dimensions.tableBorder, handleSize = basics.dimensions.handleOutside + basics.dimensions.handleInside, t, b, l, r, lg, tg, wg, hg, fwg, fhg;
     var resetSizes = function(cols, rows) {
-        l = t = -1;
-        r = cols * size + 1;
-        b = rows * size + 1;
+        l = t = 0;
+        r = cols * size;
+        b = rows * size;
         lg = tg = 0;
-        wg = fwg = cols * size;
+        wg = cols * size;
+        fwg = wg + 2 * basics.dimensions.tableBorder - basics.dimensions.fieldBorder;
         hg = fhg = rows * size;
+        fhg = hg + 2 * basics.dimensions.tableBorder - basics.dimensions.fieldBorder;
         $scope.modLeft.transform(l, 0);
         $scope.modTop.transform(0, t);
         $scope.modRight.transform(r, 0);
         $scope.modBottom.transform(0, b);
     };
-    StyleModelContainer.add("size-left", -Infinity, ($scope.crosswordData.size.height - 3) * size + 1, 0, 0);
-    StyleModelContainer.add("size-top", 0, 0, -Infinity, ($scope.crosswordData.size.width - 3) * size + 1);
-    StyleModelContainer.add("size-right", 5 * size + 1, Infinity, 0, 0);
-    StyleModelContainer.add("size-bottom", 0, 0, 5 * size + 1, Infinity);
+    StyleModelContainer.add("size-left", -Infinity, ($scope.crosswordData.size.height - 3) * size, 0, 0);
+    StyleModelContainer.add("size-top", 0, 0, -Infinity, ($scope.crosswordData.size.width - 3) * size);
+    StyleModelContainer.add("size-right", 5 * size, Infinity, 0, 0);
+    StyleModelContainer.add("size-bottom", 0, 0, 5 * size, Infinity);
     $scope.modLeft = StyleModelContainer.get("size-left");
     $scope.modTop = StyleModelContainer.get("size-top");
     $scope.modRight = StyleModelContainer.get("size-right");
@@ -1290,56 +1362,56 @@ crwApp.controller("SizeController", [ "$scope", "$document", "basics", "StyleMod
     });
     $scope.modLeft.addStyle("size-left", function(x, y) {
         l = x;
-        lg = Math.ceil((l + 1) / size) * size;
-        wg = Math.floor((r - 1 - lg) / size) * size;
+        lg = Math.ceil(l / size) * size;
+        wg = Math.floor((r - lg) / size) * size;
         if ($scope.modRight) {
-            $scope.modRight.minx = Math.floor((l + 1) / size) * size + 3 * size + 1;
+            $scope.modRight.minx = Math.floor(l / size) * size + 3 * size;
         }
     });
     $scope.modLeft.addStyle("handle-left", function(x, y) {
         return {
-            left: l - lg - 8 + "px",
-            width: lg - l + 12 + "px"
+            left: l - lg - handleShift + "px",
+            width: lg - l + handleSize + "px"
         };
     });
     $scope.modTop.addStyle("size-top", function(x, y) {
         t = y;
-        tg = Math.ceil((t + 1) / size) * size;
-        hg = Math.floor((b - 1 - tg) / size) * size;
+        tg = Math.ceil(t / size) * size;
+        hg = Math.floor((b - tg) / size) * size;
         if ($scope.modBottom) {
-            $scope.modBottom.miny = Math.floor((t + 1) / size) * size + 3 * size + 1;
+            $scope.modBottom.miny = Math.floor(t / size) * size + 3 * size;
         }
     });
     $scope.modTop.addStyle("handle-top", function(x, y) {
         return {
-            top: t - tg - 8 + "px",
-            height: tg - t + 12 + "px"
+            top: t - tg - handleShift + "px",
+            height: tg - t + handleSize + "px"
         };
     });
     $scope.modRight.addStyle("size-right", function(x, y) {
         r = x;
-        wg = Math.floor((r - 1 - lg) / size) * size;
+        wg = Math.floor((r - lg) / size) * size;
         if ($scope.modLeft) {
-            $scope.modLeft.maxx = Math.floor((r - 1) / size) * size - 3 * size + 1;
+            $scope.modLeft.maxx = Math.floor(r / size) * size - 3 * size;
         }
     });
     $scope.modRight.addStyle("handle-right", function(x, y) {
         return {
-            right: lg + wg - r - 8 + "px",
-            width: r - lg - wg + 12 + "px"
+            right: lg + wg - r - handleShift + "px",
+            width: r - lg - wg + handleSize + "px"
         };
     });
     $scope.modBottom.addStyle("size-bottom", function(x, y) {
         b = y;
-        hg = Math.floor((b - 1 - tg) / size) * size;
+        hg = Math.floor((b - tg) / size) * size;
         if ($scope.modTop) {
-            $scope.modTop.maxy = Math.floor((b - 1) / size) * size - 3 * size + 1;
+            $scope.modTop.maxy = Math.floor(b / size) * size - 3 * size;
         }
     });
     $scope.modBottom.addStyle("handle-bottom", function(x, y) {
         return {
-            bottom: tg + hg - b - 8 + "px",
-            height: b - tg - hg + 12 + "px"
+            bottom: tg + hg - b - handleShift + "px",
+            height: b - tg - hg + handleSize + "px"
         };
     });
     $scope.styleCrossword = function() {
@@ -1351,21 +1423,21 @@ crwApp.controller("SizeController", [ "$scope", "$document", "basics", "StyleMod
     $scope.styleGridSize = function() {
         return {
             left: lg + "px",
-            width: wg + "px",
+            width: wg - basics.dimensions.fieldBorder + "px",
             top: tg + "px",
-            height: hg + "px"
+            height: hg - basics.dimensions.fieldBorder + "px"
         };
     };
     $scope.styleShift = function() {
         return {
-            left: -lg + "px",
-            top: -tg + "px"
+            left: -(lg + basics.dimensions.fieldBorder) + "px",
+            top: -(tg + basics.dimensions.fieldBorder) + "px"
         };
     };
     $scope.styleExtras = function() {
         return {
             left: lg + "px",
-            top: tg + hg + 8 + "px"
+            top: tg + hg + handleShift + "px"
         };
     };
     var currentSize;
@@ -1610,7 +1682,10 @@ crwApp.directive("colorSelect", [ "basics", function(basics) {
         scope: {
             value: "="
         },
-        template: '<img ng-src="' + basics.pluginPath + 'images/bullet-{{value}}.png">'
+        link: function(scope, element, attrs) {
+            scope.localize = basics.localize;
+        },
+        template: '<img title="{{localize(value)}}" ng-src="' + basics.pluginPath + 'images/bullet-{{value}}.png">'
     };
 } ]);
 
@@ -1635,7 +1710,7 @@ crwApp.controller("EntryController", [ "$scope", "$filter", "basics", function($
     $scope.deleteWord = function(id) {
         $scope.crw.deleteWord(id, "words");
     };
-    $scope.localizeDirection = basics.localize;
+    $scope.localize = basics.localize;
     $scope.$on("select", function(event) {
         event.stopPropagation();
     });
