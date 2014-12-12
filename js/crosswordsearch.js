@@ -1,5 +1,5 @@
 /*
-crosswordsearch Wordpress plugin v0.4.0
+crosswordsearch Wordpress plugin v0.4.1
 Copyright Claus Colloseus 2014 for RadiJojo.de
 
 This program is free software: Redistribution and use, with or
@@ -726,9 +726,10 @@ crwApp.directive("crwHelpFollow", [ "$document", function($document) {
             helptabs.capabilities = matching.filter("[id*=crw-help-tab-options]");
             helptabs.editor = matching.filter("[id*=crw-help-tab-projects]");
             helptabs.review = matching.filter("[id*=crw-help-tab-review]");
-            scope.$watch("$routeParams.tab", function(tab) {
+            scope.$watch("activeTab", function(tab) {
+                var tabName = /(capabilities|editor|review)/.exec(tab)[0];
                 angular.forEach(helptabs, function(el, id) {
-                    if (id === tab) {
+                    if (id === tabName) {
                         el.addClass("active");
                     } else {
                         el.removeClass("active");
@@ -1630,12 +1631,12 @@ crwApp.controller("TableController", [ "$scope", "basics", "markerFactory", func
         }
     };
     $scope.move = function(event) {
-        var key = event.charCode || event.keyCode || event.which;
-        switch (key) {
+        switch (event.which) {
           case 8:
           case 46:
             this.field.letter = null;
             event.preventDefault();
+            event.stopPropagation();
             break;
 
           case 37:
@@ -1643,6 +1644,7 @@ crwApp.controller("TableController", [ "$scope", "basics", "markerFactory", func
                 this.activate(this.line, this.column - 1);
             }
             event.preventDefault();
+            event.stopPropagation();
             break;
 
           case 38:
@@ -1650,6 +1652,7 @@ crwApp.controller("TableController", [ "$scope", "basics", "markerFactory", func
                 this.activate(this.line - 1, this.column);
             }
             event.preventDefault();
+            event.stopPropagation();
             break;
 
           case 39:
@@ -1657,6 +1660,7 @@ crwApp.controller("TableController", [ "$scope", "basics", "markerFactory", func
                 this.activate(this.line, this.column + 1);
             }
             event.preventDefault();
+            event.stopPropagation();
             break;
 
           case 40:
@@ -1664,15 +1668,20 @@ crwApp.controller("TableController", [ "$scope", "basics", "markerFactory", func
                 this.activate(this.line + 1, this.column);
             }
             event.preventDefault();
+            event.stopPropagation();
             break;
+        }
+        var keychar = String.fromCharCode(event.which);
+        if (basics.letterRegEx.test(keychar)) {
+            event.stopPropagation();
         }
     };
     $scope.type = function(event) {
-        event.preventDefault();
-        var key = event.charCode || event.keyCode || event.which;
-        var keychar = String.fromCharCode(key);
+        var keychar = String.fromCharCode(event.which);
         if (basics.letterRegEx.test(keychar)) {
             this.field.letter = keychar.toUpperCase();
+            event.preventDefault();
+            event.stopPropagation();
         }
     };
 } ]);

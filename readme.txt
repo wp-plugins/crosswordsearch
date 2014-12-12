@@ -170,6 +170,13 @@ saved to the database, albeit at this point this information is not used anywher
 
 == Changelog ==
 
+= 0.4.1 =
+
+* show an instructional text above the crossword table
+* security fixes: harden server-side tests
+* fix automatic selection of help tab corresponding to admin tab
+* stop keyboard events caught by TableController from propagating (Jetpack compatibility issue)
+
 = 0.4.0 =
 
 New or changed features:
