@@ -31,42 +31,41 @@ Media Network.
 * Default and maximum difficulty levels are set for projects.
 * Setting up projects and editors is reserved to the blog administrators.
 
-= Shortcode usage =
+Authors can add a shortcode tag to any page or post to add a Crossword game to that page.
 
-Authors can add a shortcode tag to any page or post to add a Crossword game to that page:
+= Shortcode usage for game areas that build new crosswords =
 
-`[crosswordsearch mode="solve" project="MyProject"]`
+Choose one of these variants to add a game area for developing new and editing existing
+riddles that belong to the project `MyProject`. In every case, the app will present a dropdown
+menu with commands for loading and saving crosswords. All saved riddles belonging to the
+project can be loaded.
 
-will add a game area for solving riddles that belong to the project `MyProject`. All saved
-and approved riddles belonging to the project can be loaded through a menu.
+1. `[crosswordsearch mode="build" project="MyProject"]`  
+    On page load, the riddle with the alphabetically first name is visible.
 
-`[crosswordsearch mode="solve" project="MyProject" name="MyFirstCrossword"]`
+2. `[crosswordsearch mode="build" project="MyProject" name="MyFirstCrossword"]`  
+    On page load, the crossword saved under the name `MyFirstCrossword` is visible.
 
-will show only the crossword `MyFirstCrossword` for solving. No other crossword will be
-selectable.
+3. `[crosswordsearch mode="build" project="MyProject" name=""]`  
+    On page load, an empty new crossword is visible.
 
-`[crosswordsearch mode="build" project="MyProject"]`
+4. `[crosswordsearch mode="build" restricted="1" project="MyProject"]`  
+    The menu has no entry for selecting other riddles, and on page load an empty new
+    crossword is shown.  
+    This is a game area where restricted editors can develop new riddles. They can work
+    on a riddle as long as they stay on the page, but it will not be visible for
+    anyone else.
 
-will add a game area for developing new and editing existing riddles that belong to the
-project `MyProject`. All saved and approved riddles belonging to the project can be
-loaded through a menu. Initially visible will be the riddle with the alphabetically first
-name.
+= Shortcode usage for game areas in which crosswords can be solved =
 
-`[crosswordsearch mode="build" project="MyProject" name="MyFirstCrossword"]`
+Choose one of these variants to add a game area for solving riddles that belong to the
+project `MyProject`.
 
-works as above, but will initially show the crossword saved under the name `MyFirstCrossword`.
-All other riddles can still be loaded through the menu.
+1. `[crosswordsearch mode="solve" project="MyProject"]`  
+    All saved and approved riddles belonging to the project can be loaded through a menu.
 
-`[crosswordsearch mode="build" project="MyProject" name=""]`
-
-works as above, but will initially show an empty new crossword.
-
-`[crosswordsearch mode="build" restricted="1" project="MyProject"]`
-
-will add a game area for developing new riddles for the project `MyProject` by restricted
-editors. Restricted editors can work on a riddle as long as they stay on the page,
-but it will not be visible for anyone else. No menu for selecting other riddles is
-presented, and on page load an empty new crossword will be shown.
+2. `[crosswordsearch mode="solve" project="MyProject" name="MyFirstCrossword"]`  
+    Only the crossword `MyFirstCrossword` is visible. No other crossword can be selected.
 
 == Installation ==
 
@@ -123,7 +122,11 @@ an appropriate role is authorized for this action, there is no per-user permissi
 
 = Which work flows for adding new riddles are possible? =
 
-There are two possible setups for crossword development by users:
+If you want to develop yourself and only present riddles for solving to your readers,
+add the **build** mode shortcode to a private page and only add yourself to the list
+of full project editors.
+
+If you want to let others develop crosswords, there are two possible setups:
 
 1. **Restrict development to trusted users:**  
     If you use pages with the app in **unrestricted build** mode, everyone assigned as an
