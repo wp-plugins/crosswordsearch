@@ -2,7 +2,7 @@
 /*
 Plugin Name: crosswordsearch
 Plugin URI: https://github.com/ccprog/crosswordsearch
-Version: 0.4.1
+Version: 0.4.2
 Author: Claus Colloseus
 Author URI: http://browser-unplugged.net
 Text Domain: crw-text
@@ -84,7 +84,7 @@ function crw_install () {
     $have_innodb = $wpdb->get_var("
         SHOW VARIABLES LIKE 'have_innodb';
     ");
-    if ('NO' === $have_innodb ) {
+    if (is_null($have_innodb) || 'NO' === $have_innodb ) {
         trigger_error( 'This plugin requires MySQL to support the InnoDB table engine. Please contact your server administrator before you activate this plugin', E_USER_ERROR );
     }
 
@@ -318,7 +318,7 @@ function add_crw_scripts ( $hook ) {
 function crw_set_header () {
 	global $post, $crw_has_crossword;
 
-	if ( has_shortcode( $post->post_content, 'crosswordsearch') ) {
+	if ( is_object( $post ) && has_shortcode( $post->post_content, 'crosswordsearch') ) {
         $crw_has_crossword = true;
         add_filter ( 'language_attributes', 'crw_add_angular_attribute' );
         add_action( 'wp_enqueue_scripts', 'add_crw_scripts');
@@ -514,8 +514,9 @@ function crw_shortcode_handler( $atts, $content = null ) {
     include 'app.php';
     include 'immediate.php';
     $app_code = ob_get_clean();
+    $delay_message = '<p ng-hide="true"><strong>' . __('Loading the crossword has yet to start.', 'crw-text') . '</strong></p>';
 
-	return '<div class="crw-wrapper" ng-controller="CrosswordController" ng-init="prepare(\'' . $prep_1 . '\', \'' . $prep_2 . '\', \'' . $prep_3 . '\', \'' . $prep_4 . '\', ' . $restricted . ')">' . $app_code . '</div>';
+	return $delay_message . '<div class="crw-wrapper" ng-cloak ng-controller="CrosswordController" ng-init="prepare(\'' . $prep_1 . '\', \'' . $prep_2 . '\', \'' . $prep_3 . '\', \'' . $prep_4 . '\', ' . $restricted . ')">' . $app_code . '</div>';
 }
 add_shortcode( 'crosswordsearch', 'crw_shortcode_handler' );
 
