@@ -2,7 +2,7 @@
 Contributors: ccprog
 Tags: game, crossword, shortcode, educational, multilingual
 Requires at least: 3.6
-Tested up to: 4.1
+Tested up to: 4.2
 Stable tag: trunk
 License: see LICENCE file
 License URI: https://github.com/ccprog/crosswordsearch/LICENCE
