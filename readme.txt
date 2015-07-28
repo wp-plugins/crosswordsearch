@@ -2,7 +2,7 @@
 Contributors: ccprog
 Tags: game, crossword, shortcode, educational, multilingual
 Requires at least: 3.6
-Tested up to: 4.2
+Tested up to: 4.1
 Stable tag: trunk
 License: see LICENCE file
 License URI: https://github.com/ccprog/crosswordsearch/LICENCE
@@ -206,6 +206,11 @@ creates personally identifiable information:
 4. The *Assign projects and editors* tab
 
 == Changelog ==
+
+= 0.4.3 =
+
+* Compatibility with MySQL >= 5.5.3 make it neccesary to shorten the maximum length of project
+  and crossword names in new installs. This does not affect older installs.
 
 = 0.4.2 =
 
