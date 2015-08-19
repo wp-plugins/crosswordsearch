@@ -2,7 +2,7 @@
 Contributors: ccprog
 Tags: game, crossword, shortcode, educational, multilingual
 Requires at least: 3.6
-Tested up to: 4.2
+Tested up to: 4.3
 Stable tag: trunk
 License: see LICENCE file
 License URI: https://github.com/ccprog/crosswordsearch/LICENCE
@@ -171,6 +171,13 @@ Altering the name of crosswords from that page is considered for future versions
 That possibility is considered for future versions. The user id of the uploader is already
 saved to the database, albeit at this point this information is not used anywhere.
 
+= Is this plugin suitable for multisite installations?
+
+There is limited support for use in multisite environments. There is no option for a network
+wide installation; the plugin **must** be enabled for each individual site. Projects and
+their associated rights are also specific to the individual site, local administrators have
+access to these settings as usual.
+
 = What sort of personally identifiable information does this plugin generate? =
 
 The plugin contains no mechanism by which data retrieval from the wordpress database and
@@ -206,6 +213,22 @@ creates personally identifiable information:
 4. The *Assign projects and editors* tab
 
 == Changelog ==
+
+= 0.5.0 =
+
+* notify administrator if PHP requirement is not met
+* block network-wide installation on multisite
+* adaptations for multisite use cases
+* WP 4.3 compatibility: update header tags in admin screen
+
+**If you have modified WordPress standard roles, please note:**
+The right to adminstrate projects is now linked to the *list_users* capability instead of
+*edit_users*. Please review which role has the *list_users* capability.
+
+**Known bugs:** trying to activate the plugin network-wide in a multisite installation will
+result in a non-informative error message. The non-activation is intentional, it is only
+the wrong message displayed.
+This is an upstream issue. (see https://core.trac.wordpress.org/ticket/33215)
 
 = 0.4.3 =
 
