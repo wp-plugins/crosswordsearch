@@ -171,7 +171,7 @@ Altering the name of crosswords from that page is considered for future versions
 That possibility is considered for future versions. The user id of the uploader is already
 saved to the database, albeit at this point this information is not used anywhere.
 
-= Is this plugin suitable for multisite installations?
+= Is this plugin suitable for multisite installations? =
 
 There is limited support for use in multisite environments. There is no option for a network
 wide installation; the plugin **must** be enabled for each individual site. Projects and
@@ -228,7 +228,7 @@ The right to adminstrate projects is now linked to the *list_users* capability i
 **Known bugs:** trying to activate the plugin network-wide in a multisite installation will
 result in a non-informative error message. The non-activation is intentional, it is only
 the wrong message displayed.
-This is an upstream issue. (see https://core.trac.wordpress.org/ticket/33215)
+This is an upstream issue. (see https://core.trac.wordpress.org/ticket/33215 )
 
 = 0.4.3 =
 
